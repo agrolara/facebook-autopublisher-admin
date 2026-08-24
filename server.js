@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
@@ -303,6 +303,6 @@ process.on('unhandledRejection', (reason) => {
   console.error('[Global Unhandled Rejection]', reason);
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`[Admin Server] Panel de Administración corriendo en http://0.0.0.0:${PORT}`);
+app.listen(PORT, () => {
+  console.log(`[Admin Server] Panel de Administración corriendo en el puerto ${PORT}`);
 });
