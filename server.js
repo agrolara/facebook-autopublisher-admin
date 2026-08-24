@@ -9,17 +9,27 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://supabase.agrolara.dedyn.io';
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJzdXBhYmFzZSIsImlhdCI6MTc4MDk4MDE4MCwiZXhwIjo0OTM2NjUzNzgwLCJyb2xlIjoiYW5vbiJ9.iejQ436gpvOWQq5clGjhq-lZdkXN593b9pSNEh70Jq8';
+const SUPABASE_KEY = process.env.SUPABASE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJzdXBhYmFzZSIsImlhdCI6MTc4MDk4MDE4MCwiZXhwIjo0OTM2NjUzNzgwLCJyb2xlIjoiYW5vbiJ9.iejQ436gpvOWQq5clGjhq-lZdkXN593b9pSNEh70Jq8';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Agro1280@';
 const JWT_SECRET = process.env.JWT_SECRET || 'agro1280_master_secret_2026_key';
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
-  auth: { persistSession: false }
-});
+let supabase = null;
+try {
+  supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
+    auth: { persistSession: false }
+  });
+} catch (err) {
+  console.error('[Supabase Init Error]', err.message);
+}
 
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Health check para Coolify y Docker
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', uptime: process.uptime(), timestamp: new Date().toISOString() });
+});
 
 // Middleware de autenticación
 function requireAuth(req, res, next) {
@@ -52,6 +62,7 @@ app.post('/api/auth/login', (req, res) => {
 // 2. OBTENER TODAS LAS LICENCIAS Y ESTADÍSTICAS
 app.get('/api/licenses', requireAuth, async (req, res) => {
   try {
+    if (!supabase) throw new Error('Supabase no inicializado');
     const { data: licenses, error } = await supabase
       .from('licenses')
       .select('*')
@@ -102,7 +113,6 @@ app.post('/api/licenses/create', requireAuth, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Ingresa un correo electrónico válido.' });
     }
 
-    // Generar clave aleatoria limpia tipo PRO-FB-XXXX-YYYY si no se especifica
     const randomPart1 = Math.random().toString(36).substring(2, 6).toUpperCase();
     const randomPart2 = Math.random().toString(36).substring(2, 6).toUpperCase();
     const licenseKey = customKey && customKey.trim() ? customKey.trim() : `PRO-FB-${randomPart1}-${randomPart2}`;
@@ -133,13 +143,12 @@ app.post('/api/licenses/create', requireAuth, async (req, res) => {
   }
 });
 
-// 4. RENOVAR LICENCIA (+30 Días o personalizado)
+// 4. RENOVAR LICENCIA (+30 Días)
 app.post('/api/licenses/renew', requireAuth, async (req, res) => {
   try {
     const { id, days = 30 } = req.body;
     if (!id) return res.status(400).json({ success: false, error: 'ID de licencia requerido.' });
 
-    // Obtener fecha actual de la licencia
     const { data: existing, error: fetchErr } = await supabase
       .from('licenses')
       .select('*')
@@ -152,7 +161,6 @@ app.post('/api/licenses/renew', requireAuth, async (req, res) => {
     const now = new Date();
     const currentExpiry = existing.expires_at ? new Date(existing.expires_at) : now;
 
-    // Si ya expiró, sumar desde hoy. Si sigue activa, sumar a la fecha restante.
     const baseDate = currentExpiry > now ? currentExpiry : now;
     baseDate.setDate(baseDate.getDate() + numDays);
 
@@ -243,6 +251,15 @@ app.delete('/api/licenses/:id', requireAuth, async (req, res) => {
 // Fallback SPA
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Manejo de errores globales
+process.on('uncaughtException', (err) => {
+  console.error('[Global Uncaught Exception]', err);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[Global Unhandled Rejection]', reason);
 });
 
 app.listen(PORT, '0.0.0.0', () => {
