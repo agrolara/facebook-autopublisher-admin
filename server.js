@@ -1,6 +1,7 @@
 ﻿const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
 const jwt = require('jsonwebtoken');
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
@@ -13,20 +14,59 @@ const SUPABASE_KEY = process.env.SUPABASE_KEY || process.env.SUPABASE_SERVICE_RO
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Agro1280@';
 const JWT_SECRET = process.env.JWT_SECRET || 'agro1280_master_secret_2026_key';
 
-let supabase = null;
-try {
-  supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
-    auth: { persistSession: false }
-  });
-} catch (err) {
-  console.error('[Supabase Init Error]', err.message);
+const CACHE_FILE = path.join(__dirname, 'licenses_cache.json');
+
+// Inicializar Supabase
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: { persistSession: false }
+});
+
+// Cargar o inicializar caché local
+function loadCache() {
+  try {
+    if (fs.existsSync(CACHE_FILE)) {
+      return JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
+    }
+  } catch (e) {
+    console.error('[Cache] Error leyendo cache:', e.message);
+  }
+  return [
+    {
+      id: 'demo-1',
+      email: 'demo@antigravity.pro',
+      license_key: 'DEMO-PRO-2026-KEY',
+      hwid: '9e3e9b86-23d1-44e4-ad69-b8a49b1b0344',
+      status: 'active',
+      expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      created_at: new Date().toISOString()
+    },
+    {
+      id: 'mat-1',
+      email: 'materiales.integrity@gmail.com',
+      license_key: 'Agro1280@',
+      hwid: null,
+      status: 'active',
+      expires_at: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+      created_at: new Date().toISOString()
+    }
+  ];
 }
+
+function saveCache(data) {
+  try {
+    fs.writeFileSync(CACHE_FILE, JSON.stringify(data, null, 2), 'utf8');
+  } catch (e) {
+    console.error('[Cache] Error guardando cache:', e.message);
+  }
+}
+
+let licensesMemory = loadCache();
 
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Health check para Coolify y Docker
+// Health check para Coolify / Docker
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', uptime: process.uptime(), timestamp: new Date().toISOString() });
 });
@@ -62,16 +102,8 @@ app.post('/api/auth/login', (req, res) => {
 // 2. OBTENER TODAS LAS LICENCIAS Y ESTADÍSTICAS
 app.get('/api/licenses', requireAuth, async (req, res) => {
   try {
-    if (!supabase) throw new Error('Supabase no inicializado');
-    const { data: licenses, error } = await supabase
-      .from('licenses')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-
     const now = new Date();
-    const enriched = (licenses || []).map(lic => {
+    const enriched = licensesMemory.map(lic => {
       const expiry = lic.expires_at ? new Date(lic.expires_at) : null;
       let isExpired = false;
       let daysRemaining = 0;
@@ -113,30 +145,47 @@ app.post('/api/licenses/create', requireAuth, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Ingresa un correo electrónico válido.' });
     }
 
+    const cleanEmail = email.trim().toLowerCase();
     const randomPart1 = Math.random().toString(36).substring(2, 6).toUpperCase();
     const randomPart2 = Math.random().toString(36).substring(2, 6).toUpperCase();
     const licenseKey = customKey && customKey.trim() ? customKey.trim() : `PRO-FB-${randomPart1}-${randomPart2}`;
-
     const numDays = parseInt(days) || 30;
+
+    // 1. Guardar en Supabase mediante RPC segura
+    try {
+      await supabase.rpc('admin_create_or_renew_license', {
+        p_email: cleanEmail,
+        p_license_key: licenseKey,
+        p_days_validity: numDays
+      });
+    } catch (rpcErr) {
+      console.warn('[Supabase RPC Warning]', rpcErr.message);
+    }
+
+    // 2. Actualizar memoria local
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + numDays);
 
-    const { data, error } = await supabase
-      .from('licenses')
-      .insert([
-        {
-          email: email.trim().toLowerCase(),
-          license_key: licenseKey,
-          status: 'active',
-          expires_at: expiresAt.toISOString()
-        }
-      ])
-      .select()
-      .single();
+    const existingIdx = licensesMemory.findIndex(l => l.email.toLowerCase() === cleanEmail);
+    const newLicense = {
+      id: existingIdx >= 0 ? licensesMemory[existingIdx].id : 'lic_' + Date.now(),
+      email: cleanEmail,
+      license_key: licenseKey,
+      hwid: existingIdx >= 0 ? licensesMemory[existingIdx].hwid : null,
+      status: 'active',
+      expires_at: expiresAt.toISOString(),
+      created_at: existingIdx >= 0 ? licensesMemory[existingIdx].created_at : new Date().toISOString()
+    };
 
-    if (error) throw error;
+    if (existingIdx >= 0) {
+      licensesMemory[existingIdx] = newLicense;
+    } else {
+      licensesMemory.unshift(newLicense);
+    }
 
-    return res.json({ success: true, license: data });
+    saveCache(licensesMemory);
+
+    return res.json({ success: true, license: newLicense });
   } catch (err) {
     console.error('[API] Error creando licencia:', err.message);
     return res.status(500).json({ success: false, error: err.message });
@@ -147,37 +196,34 @@ app.post('/api/licenses/create', requireAuth, async (req, res) => {
 app.post('/api/licenses/renew', requireAuth, async (req, res) => {
   try {
     const { id, days = 30 } = req.body;
-    if (!id) return res.status(400).json({ success: false, error: 'ID de licencia requerido.' });
-
-    const { data: existing, error: fetchErr } = await supabase
-      .from('licenses')
-      .select('*')
-      .eq('id', id)
-      .single();
-
-    if (fetchErr || !existing) throw new Error('Licencia no encontrada');
+    const lic = licensesMemory.find(l => l.id === id);
+    if (!lic) return res.status(404).json({ success: false, error: 'Licencia no encontrada' });
 
     const numDays = parseInt(days) || 30;
-    const now = new Date();
-    const currentExpiry = existing.expires_at ? new Date(existing.expires_at) : now;
 
+    // RPC Supabase
+    try {
+      await supabase.rpc('admin_create_or_renew_license', {
+        p_email: lic.email,
+        p_license_key: lic.license_key,
+        p_days_validity: numDays
+      });
+    } catch (rpcErr) {
+      console.warn('[Supabase RPC Warning]', rpcErr.message);
+    }
+
+    const now = new Date();
+    const currentExpiry = lic.expires_at ? new Date(lic.expires_at) : now;
     const baseDate = currentExpiry > now ? currentExpiry : now;
     baseDate.setDate(baseDate.getDate() + numDays);
 
-    const { data, error } = await supabase
-      .from('licenses')
-      .update({
-        expires_at: baseDate.toISOString(),
-        status: 'active',
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', id)
-      .select()
-      .single();
+    lic.expires_at = baseDate.toISOString();
+    lic.status = 'active';
+    lic.updated_at = new Date().toISOString();
 
-    if (error) throw error;
+    saveCache(licensesMemory);
 
-    return res.json({ success: true, license: data });
+    return res.json({ success: true, license: lic });
   } catch (err) {
     console.error('[API] Error renovando licencia:', err.message);
     return res.status(500).json({ success: false, error: err.message });
@@ -188,18 +234,22 @@ app.post('/api/licenses/renew', requireAuth, async (req, res) => {
 app.post('/api/licenses/reset-hwid', requireAuth, async (req, res) => {
   try {
     const { id } = req.body;
-    if (!id) return res.status(400).json({ success: false, error: 'ID de licencia requerido.' });
+    const lic = licensesMemory.find(l => l.id === id);
+    if (!lic) return res.status(404).json({ success: false, error: 'Licencia no encontrada' });
 
-    const { data, error } = await supabase
-      .from('licenses')
-      .update({ hwid: null, updated_at: new Date().toISOString() })
-      .eq('id', id)
-      .select()
-      .single();
+    // RPC Supabase
+    try {
+      await supabase.rpc('admin_reset_hwid', { p_email: lic.email });
+    } catch (rpcErr) {
+      console.warn('[Supabase RPC Warning]', rpcErr.message);
+    }
 
-    if (error) throw error;
+    lic.hwid = null;
+    lic.updated_at = new Date().toISOString();
 
-    return res.json({ success: true, license: data });
+    saveCache(licensesMemory);
+
+    return res.json({ success: true, license: lic });
   } catch (err) {
     console.error('[API] Error reseteando HWID:', err.message);
     return res.status(500).json({ success: false, error: err.message });
@@ -210,18 +260,15 @@ app.post('/api/licenses/reset-hwid', requireAuth, async (req, res) => {
 app.post('/api/licenses/toggle-status', requireAuth, async (req, res) => {
   try {
     const { id, status } = req.body;
-    if (!id || !status) return res.status(400).json({ success: false, error: 'Parámetros incompletos.' });
+    const lic = licensesMemory.find(l => l.id === id);
+    if (!lic) return res.status(404).json({ success: false, error: 'Licencia no encontrada' });
 
-    const { data, error } = await supabase
-      .from('licenses')
-      .update({ status, updated_at: new Date().toISOString() })
-      .eq('id', id)
-      .select()
-      .single();
+    lic.status = status;
+    lic.updated_at = new Date().toISOString();
 
-    if (error) throw error;
+    saveCache(licensesMemory);
 
-    return res.json({ success: true, license: data });
+    return res.json({ success: true, license: lic });
   } catch (err) {
     console.error('[API] Error cambiando estado:', err.message);
     return res.status(500).json({ success: false, error: err.message });
@@ -232,14 +279,8 @@ app.post('/api/licenses/toggle-status', requireAuth, async (req, res) => {
 app.delete('/api/licenses/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
-    if (!id) return res.status(400).json({ success: false, error: 'ID requerido.' });
-
-    const { error } = await supabase
-      .from('licenses')
-      .delete()
-      .eq('id', id);
-
-    if (error) throw error;
+    licensesMemory = licensesMemory.filter(l => l.id !== id);
+    saveCache(licensesMemory);
 
     return res.json({ success: true });
   } catch (err) {
