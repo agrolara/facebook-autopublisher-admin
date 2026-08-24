@@ -1,0 +1,189 @@
+﻿<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Admin Licencias - Facebook AutoPublisher Pro</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <!-- ========================================== -->
+  <!-- 1. PANTALLA DE LOGIN                       -->
+  <!-- ========================================== -->
+  <div id="loginScreen" class="auth-wrapper">
+    <div class="auth-card">
+      <div class="brand-header">
+        <div class="brand-icon">🔑</div>
+        <h2>Panel de Licencias</h2>
+        <p class="subtitle">Administración de clientes y membresías SaaS</p>
+      </div>
+
+      <form id="loginForm" class="login-form">
+        <div class="form-group">
+          <label for="adminPasswordInput">Contraseña Maestra</label>
+          <input type="password" id="adminPasswordInput" placeholder="Ingresa tu clave de acceso" required autocomplete="current-password">
+        </div>
+
+        <div id="loginError" class="alert alert-danger hidden"></div>
+
+        <button type="submit" id="btnLoginSubmit" class="btn btn-primary btn-block">
+          <span>Ingresar al Panel</span>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ========================================== -->
+  <!-- 2. PANTALLA PRINCIPAL (DASHBOARD)          -->
+  <!-- ========================================== -->
+  <div id="dashboardScreen" class="dashboard-wrapper hidden">
+    
+    <!-- Barra Superior -->
+    <header class="top-nav">
+      <div class="nav-brand">
+        <span class="nav-logo">⚡</span>
+        <div>
+          <h1>AutoPublisher Pro</h1>
+          <span class="badge-server">Panel de Control</span>
+        </div>
+      </div>
+      <div class="nav-actions">
+        <button id="btnRefresh" class="btn btn-icon" title="Refrescar lista">🔄</button>
+        <button id="btnLogout" class="btn btn-outline-sm">Salir</button>
+      </div>
+    </header>
+
+    <main class="main-content">
+      
+      <!-- Resumen Estadístico -->
+      <section class="stats-grid">
+        <div class="stat-card">
+          <span class="stat-label">Total Clientes</span>
+          <strong id="statTotal" class="stat-value">0</strong>
+        </div>
+        <div class="stat-card stat-success">
+          <span class="stat-label">🟢 Activas</span>
+          <strong id="statActive" class="stat-value">0</strong>
+        </div>
+        <div class="stat-card stat-warning">
+          <span class="stat-label">🟡 Por Vencer</span>
+          <strong id="statExpiring" class="stat-value">0</strong>
+        </div>
+        <div class="stat-card stat-danger">
+          <span class="stat-label">🔴 Expiradas</span>
+          <strong id="statExpired" class="stat-value">0</strong>
+        </div>
+      </section>
+
+      <!-- Barra de Acciones y Búsqueda -->
+      <section class="action-bar">
+        <div class="search-box">
+          <input type="text" id="searchInput" placeholder="🔍 Buscar por correo o clave...">
+        </div>
+        <button id="btnOpenCreateModal" class="btn btn-primary">
+          <span>+ Nueva Licencia</span>
+        </button>
+      </section>
+
+      <!-- Lista de Licencias (Móvil / Desktop) -->
+      <section class="licenses-container">
+        <div class="licenses-header">
+          <h3>Clientes y Membresías</h3>
+          <span id="listCountBadge" class="count-badge">0 clientes</span>
+        </div>
+
+        <div id="licensesList" class="licenses-grid">
+          <!-- Tarjetas renderizadas dinámicamente -->
+        </div>
+
+        <div id="emptyState" class="empty-state hidden">
+          <p>No se encontraron licencias con ese criterio de búsqueda.</p>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ========================================== -->
+  <!-- 3. MODAL: CREAR NUEVA LICENCIA             -->
+  <!-- ========================================== -->
+  <div id="createModal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Crear Nueva Licencia</h3>
+        <button class="btn-close-modal" data-close="createModal">✕</button>
+      </div>
+
+      <form id="createLicenseForm" class="modal-form">
+        <div class="form-group">
+          <label>Correo Electrónico del Cliente *</label>
+          <input type="email" id="createEmailInput" placeholder="cliente@ejemplo.com" required>
+        </div>
+
+        <div class="form-group">
+          <label>Duración de la Membresía</label>
+          <div class="duration-selector">
+            <label class="radio-pill">
+              <input type="radio" name="createDuration" value="30" checked>
+              <span>1 Mes (30 días)</span>
+            </label>
+            <label class="radio-pill">
+              <input type="radio" name="createDuration" value="90">
+              <span>3 Meses (90 días)</span>
+            </label>
+            <label class="radio-pill">
+              <input type="radio" name="createDuration" value="365">
+              <span>1 Año (365 días)</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Clave Personalizada (Opcional - dejar vacío para auto-generar)</label>
+          <input type="text" id="createCustomKeyInput" placeholder="PRO-FB-XXXX-YYYY">
+        </div>
+
+        <div id="createError" class="alert alert-danger hidden"></div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" data-close="createModal">Cancelar</button>
+          <button type="submit" id="btnSubmitCreate" class="btn btn-primary">
+            <span>Generar y Activar</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ========================================== -->
+  <!-- 4. MODAL: MENSAJE PARA WHATSAPP            -->
+  <!-- ========================================== -->
+  <div id="whatsappModal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>📲 Mensaje de Entrega para WhatsApp</h3>
+        <button class="btn-close-modal" data-close="whatsappModal">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <p class="help-text">Copia este mensaje y pégalo directamente en WhatsApp o correo para entregarlo a tu cliente:</p>
+        
+        <textarea id="whatsappMessageText" class="whatsapp-textarea" rows="8" readonly></textarea>
+        
+        <button id="btnCopyWhatsapp" class="btn btn-success btn-block">
+          <span>📋 Copiar Mensaje para WhatsApp</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
