@@ -18,7 +18,8 @@ const CACHE_FILE = path.join(__dirname, 'licenses_cache.json');
 
 // Inicializar Supabase
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
-  auth: { persistSession: false }
+  auth: { persistSession: false },
+  realtime: { enabled: false }
 });
 
 // Cargar o inicializar caché local
